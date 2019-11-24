@@ -1,6 +1,30 @@
 from ..spec import AbstractFileSystem
 from ..utils import infer_storage_options
 from pyarrow.hdfs import HadoopFileSystem
+import warnings
+
+# For PyArrow v0.13.0
+_allowed_pyarrow_kwargs = {
+    'open': ['mode', 'buffer_size', 'replication', 'default_block_size'],
+    'upload': ['buffer_size'],
+    'delete': ['recursive', 'bool_recursive'],
+    'chown': ['owner', 'group'],
+    'download': ['buffer_size'],
+    'ls': ['detail']
+}
+
+
+def _filter_pyarrrow_kwargs(item, **kwargs):
+    if len(kwargs) == 0 or item not in _allowed_pyarrow_kwargs:
+        return kwargs
+    allowed_keys = _allowed_pyarrow_kwargs[item]
+    unsupported_keys = set(kwargs.keys()).difference(allowed_keys)
+    if len(unsupported_keys) > 0:
+        warnings.warn(f"kwargs {unsupported_keys} are not supported by PyArrow method '{item}' so ignoring them.", FutureWarning)
+        return {k: kwargs[k] for k in allowed_keys if k in kwargs}
+
+    return kwargs
+
 
 
 class PyArrowHDFS(AbstractFileSystem):
@@ -130,7 +154,7 @@ class PyArrowHDFS(AbstractFileSystem):
         ]:
             # all the methods defined in this class. Note `open` here, since
             # it calls `_open`, but is actually in superclass
-            return lambda *args, **kw: getattr(PyArrowHDFS, item)(self, *args, **kw)
+            return lambda *args, **kw: getattr(PyArrowHDFS, item)(self, *args, **_filter_pyarrrow_kwargs(item, kw))
         if item == "__class__":
             return PyArrowHDFS
         d = object.__getattribute__(self, "__dict__")
@@ -201,7 +225,7 @@ class HDFSFile(object):
         self.path = path
         self.mode = mode
         self.block_size = block_size
-        self.fh = fs.pahdfs.open(path, mode, block_size, **kwargs)
+        self.fh = fs.pahdfs.open(path, mode, block_size, **_filter_pyarrrow_kwargs('open', kwargs))
         if self.fh.readable():
             self.seek_size = self.size()
 
